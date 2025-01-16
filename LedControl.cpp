@@ -28,7 +28,10 @@
 #include "LedControl.h"
 
 //the opcodes for the MAX7221 and MAX7219
+// 数字显示控制 (0-8)
+// 空操作指令，不执行任何操作
 #define OP_NOOP   0
+// 控制数码管位置1~8的显示内容
 #define OP_DIGIT0 1
 #define OP_DIGIT1 2
 #define OP_DIGIT2 3
@@ -37,10 +40,15 @@
 #define OP_DIGIT5 6
 #define OP_DIGIT6 7
 #define OP_DIGIT7 8
+// 设置解码模式，决定是使用BCD码解码还是直接显示段码
 #define OP_DECODEMODE  9
+// 控制显示亮度，可以设置不同级别的亮度
 #define OP_INTENSITY   10
+// 设置扫描限制，控制要显示的位数
 #define OP_SCANLIMIT   11
+// 关机模式控制，可以打开或关闭显示
 #define OP_SHUTDOWN    12
+// 显示测试模式，所有LED段都会被点亮
 #define OP_DISPLAYTEST 15
 
 LedControl::LedControl(int dataPin, int clkPin, int csPin, int numDevices) {

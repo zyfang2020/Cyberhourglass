@@ -8,184 +8,47 @@
 MPU6050 mpu6050(Wire);
 #define MATRIX_A 1
 #define MATRIX_B 0
-// 点阵屏
+// 点阵屏驱动引脚
 #define PIN_DATAIN 3  // DIN 引脚
 #define PIN_CLK 2     // CLK 引脚
 #define PIN_LOAD 1    // CS 引脚
-
 // 点阵屏安装方向
 #define ROTATION_OFFSET 90
+#define Gravity 6
+//定义粒子实体数
+#define PARTICLE_COUNT 64
 
-int last_direction = 0;  // 记录上一次的方向
+//定义粒子结构
+struct Particle{
+  int x;  // 粒子的x坐标，float
+  int y;  // 粒子的y坐标，float
+  float velX;  // 粒子的x方向速度，float
+  float velY;  // 粒子的y方向速度，float
+  bool active;  // 粒子是否激活，bool
+};
 
-int gravity;
+// 定义粒子数组，包含其位置和速度信息
+Particle particles[PARTICLE_COUNT];  
+//定义点阵屏对象，包含两个实体设备
 LedControl lc = LedControl(PIN_DATAIN, PIN_CLK, PIN_LOAD, 2);
-NonBlockDelay d;
-int resetCounter = 0;
+// 定义一个16*16的二维数组，用于记录点阵屏上的粒子位置，实际有效区域为x:0-7, y:8-15以及x:8-15, y:0-7
+bool grid[16][16] = {0};  
 
-// 返回坐标点的下方坐标
-#line 26 "D:\\Project\\ProjectArduino\\Cyberhourglass\\Cyberhourglass.ino"
-coord getDown(int x, int y);
-#line 34 "D:\\Project\\ProjectArduino\\Cyberhourglass\\Cyberhourglass.ino"
-coord getLeft(int x, int y);
-#line 42 "D:\\Project\\ProjectArduino\\Cyberhourglass\\Cyberhourglass.ino"
-coord getRight(int x, int y);
-#line 50 "D:\\Project\\ProjectArduino\\Cyberhourglass\\Cyberhourglass.ino"
-bool canGoLeft(int addr, int x, int y);
-#line 56 "D:\\Project\\ProjectArduino\\Cyberhourglass\\Cyberhourglass.ino"
-bool canGoRight(int addr, int x, int y);
-#line 62 "D:\\Project\\ProjectArduino\\Cyberhourglass\\Cyberhourglass.ino"
-bool canGoDown(int addr, int x, int y);
-#line 72 "D:\\Project\\ProjectArduino\\Cyberhourglass\\Cyberhourglass.ino"
-void goDown(int addr, int x, int y);
-#line 78 "D:\\Project\\ProjectArduino\\Cyberhourglass\\Cyberhourglass.ino"
-void goLeft(int addr, int x, int y);
-#line 84 "D:\\Project\\ProjectArduino\\Cyberhourglass\\Cyberhourglass.ino"
-void goRight(int addr, int x, int y);
-#line 90 "D:\\Project\\ProjectArduino\\Cyberhourglass\\Cyberhourglass.ino"
-int countParticles(int addr);
-#line 103 "D:\\Project\\ProjectArduino\\Cyberhourglass\\Cyberhourglass.ino"
-bool moveParticle(int addr, int x, int y);
-#line 132 "D:\\Project\\ProjectArduino\\Cyberhourglass\\Cyberhourglass.ino"
-void fill(int addr, int maxcount);
-#line 147 "D:\\Project\\ProjectArduino\\Cyberhourglass\\Cyberhourglass.ino"
-int getGravity();
-#line 165 "D:\\Project\\ProjectArduino\\Cyberhourglass\\Cyberhourglass.ino"
-int getTopMatrix();
-#line 170 "D:\\Project\\ProjectArduino\\Cyberhourglass\\Cyberhourglass.ino"
-int getBottomMatrix();
-#line 175 "D:\\Project\\ProjectArduino\\Cyberhourglass\\Cyberhourglass.ino"
-void resetTime();
-#line 184 "D:\\Project\\ProjectArduino\\Cyberhourglass\\Cyberhourglass.ino"
-bool updateMatrix();
-#line 207 "D:\\Project\\ProjectArduino\\Cyberhourglass\\Cyberhourglass.ino"
-bool dropParticle();
-#line 231 "D:\\Project\\ProjectArduino\\Cyberhourglass\\Cyberhourglass.ino"
-void setup();
-#line 248 "D:\\Project\\ProjectArduino\\Cyberhourglass\\Cyberhourglass.ino"
-void loop();
-#line 26 "D:\\Project\\ProjectArduino\\Cyberhourglass\\Cyberhourglass.ino"
-coord getDown(int x, int y) {
-  coord xy;
-  xy.x = x - 1;
-  xy.y = y + 1;
-  return xy;
-}
+void ParticleInit();
+void ParticleUpdate();
+void ParticleCollision(Particle *p);
+void ParticleMove(Particle *p);
+void ParticleRender();
 
-// 返回坐标点的左方坐标
-coord getLeft(int x, int y) {
-  coord xy;
-  xy.x = x - 1;
-  xy.y = y;
-  return xy;
-}
- 
-// 返回坐标点的右方坐标
-coord getRight(int x, int y) {
-  coord xy;
-  xy.x = x;
-  xy.y = y + 1;
-  return xy;
-}
-
-// 判断某个坐标点是否可以向左移动
-bool canGoLeft(int addr, int x, int y) {
-  if (x == 0) return false;               // 边界检查，如果在左边界，返回false
-  return !lc.getXY(addr, getLeft(x, y));  // 如果左侧坐标没有点亮，则返回true
-}
-
-// 判断某个坐标点是否可以向右移动
-bool canGoRight(int addr, int x, int y) {
-  if (y == 7) return false;                // 边界检查，如果在右边界，返回false
-  return !lc.getXY(addr, getRight(x, y));  // 如果右侧坐标没有点亮，则返回true
-}
-
-// 判断某个坐标点是否可以向下移动
-bool canGoDown(int addr, int x, int y) {
-  if (y == 7) return false;  // 边界检查，如果在底部，返回false
-  if (x == 0) return false;  // 边界检查，如果在左边界，返回false
-  // 检查左下和右下两个坐标，如果它们都没有点亮，则返回true
-  if (!canGoLeft(addr, x, y)) return false;
-  if (!canGoRight(addr, x, y)) return false;
-  return !lc.getXY(addr, getDown(x, y));  // 如果下方坐标没有点亮，则返回true
-}
-
-// 将指定坐标点下移一个位置
-void goDown(int addr, int x, int y) {
-  lc.setXY(addr, x, y, false);
-  lc.setXY(addr, getDown(x, y), true);
-}
-
-// 将指定坐标点左移一个位置
-void goLeft(int addr, int x, int y) {
-  lc.setXY(addr, x, y, false);
-  lc.setXY(addr, getLeft(x, y), true);
-}
-
-// 将指定坐标点右移一个位置
-void goRight(int addr, int x, int y) {
-  lc.setXY(addr, x, y, false);
-  lc.setXY(addr, getRight(x, y), true);
-}
-
-// 统计指定地址的点阵屏上点亮的粒子数量
-int countParticles(int addr) {
-  int c = 0;
-  for (byte y = 0; y < 8; y++) {
-    for (byte x = 0; x < 8; x++) {
-      if (lc.getXY(addr, x, y)) {
-        c++;
-      }
-    }
-  }
-  return c;
-}
-
-// 移动指定坐标点上的粒子
-bool moveParticle(int addr, int x, int y) {
-  if (!lc.getXY(addr, x, y)) {
-    return false; // 如果指定坐标点上没有粒子，则返回false
-  }
-
-  bool can_GoLeft = canGoLeft(addr, x, y);
-  bool can_GoRight = canGoRight(addr, x, y);
-
-  if (!can_GoLeft && !can_GoRight) {
-    return false;  // 如果左右两侧都不能移动，则返回false，表示粒子没地儿去了
-  }
-
-  bool can_GoDown = canGoDown(addr, x, y);
-
-  if (can_GoDown) {
-    goDown(addr, x, y);
-  } else if (can_GoLeft && !can_GoRight) {
-    goLeft(addr, x, y);
-  } else if (can_GoRight && !can_GoLeft) {
-    goRight(addr, x, y);
-  } else if (random(2) == 1) {  // 随机向左或向右移动
-    goLeft(addr, x, y);
-  } else {
-    goRight(addr, x, y);
-  }
-  return true;
-}
-
-// 在指定地址的点阵屏上填充指定数量的粒子
-void fill(int addr, int maxcount) {
-  int n = 8;
-  byte x, y;
-  int count = 0;
-  for (byte slice = 0; slice < 2 * n - 1; ++slice) {
-    byte z = slice < n ? 0 : slice - n + 1;
-    for (byte j = z; j <= slice - z; ++j) {
-      y = 7 - j;
-      x = (slice - j);
-      lc.setXY(addr, x, y, (++count <= maxcount));
-    }
-  }
-}
 
 // 获取当前的重力方向
+#line 44 "D:\\Project\\ProjectArduino\\Cyberhourglass\\Cyberhourglass.ino"
+int getGravity();
+#line 61 "D:\\Project\\ProjectArduino\\Cyberhourglass\\Cyberhourglass.ino"
+void setup();
+#line 76 "D:\\Project\\ProjectArduino\\Cyberhourglass\\Cyberhourglass.ino"
+void loop();
+#line 44 "D:\\Project\\ProjectArduino\\Cyberhourglass\\Cyberhourglass.ino"
 int getGravity() {
   mpu6050.update();
   float x = mpu6050.getAccX();  // 获取x方向的加速度
@@ -199,102 +62,217 @@ int getGravity() {
   } else if (x < -0.8) {
     return 270;  // 重力方向朝右
   } else {
-    return last_direction; // 其他情况保持上一次的方向
+    return 0; // 其他情况保持上一次的方向
   }
-}
-
-// 获取上方的点阵屏地址
-int getTopMatrix() {
-  return (getGravity() == 90) ? MATRIX_A : MATRIX_B; // 如果重力方向是向左，返回MATRIX_A，否则返回MATRIX_B
-}
-
-// 获取下方的点阵屏地址
-int getBottomMatrix() {
-  return (getGravity() != 90) ? MATRIX_A : MATRIX_B; // 如果重力方向不是向左，返回MATRIX_A，否则返回MATRIX_B
-}
-
-// 重置时间并在上方的点阵屏上填充粒子
-void resetTime() {
-  for (byte i = 0; i < 2; i++) {
-    lc.clearDisplay(i);
-  }
-  fill(getTopMatrix(), 64);  // 在上方的点阵屏上填充64个粒子
-  d.Delay(1 * 1000);
-}
-
-// 更新粒子的运动状态
-bool updateMatrix() {
-  int n = 8;
-  bool somethingMoved = false;
-  byte x, y;
-  bool direction;
-  for (byte slice = 0; slice < 2 * n - 1; ++slice) {
-    direction = (random(2) == 1);  // 随机确定运动方向
-    byte z = slice < n ? 0 : slice - n + 1;
-    for (byte j = z; j <= slice - z; ++j) {
-      y = direction ? (7 - j) : (7 - (slice - j));
-      x = direction ? (slice - j) : j;
-      if (moveParticle(MATRIX_B, x, y)) {
-        somethingMoved = true;
-      };
-      if (moveParticle(MATRIX_A, x, y)) {
-        somethingMoved = true;
-      }
-    }
-  }
-  return somethingMoved; // 返回是否有粒子移动
-}
-
-// 在重力方向为上/下时，实现粒子的跨屏移动
-bool dropParticle() {
-  if (d.Timeout()) {
-    d.Delay(1 * 1000);
-
-    if (gravity == 0) { // 重力方向朝上
-      bool particleMoved = false;
-
-      if (lc.getRawXY(MATRIX_A, 0, 0) && !lc.getRawXY(MATRIX_B, 7, 7)) {
-        lc.invertRawXY(MATRIX_A, 0, 0);
-        lc.invertRawXY(MATRIX_B, 7, 7);
-        return true; // 发生了跨屏移动，返回true
-      }
-    } else if (gravity == 180) { // 重力方向朝下
-      bool particleMoved = false;
-      if (!lc.getRawXY(MATRIX_A, 0, 0) && lc.getRawXY(MATRIX_B, 7, 7)) {
-        lc.invertRawXY(MATRIX_A, 0, 0);
-        lc.invertRawXY(MATRIX_B, 7, 7);
-        return true; // 发生了跨屏移动，返回true
-      }
-    }
-  }
-  return false; // 没有发生跨屏移动，返回false
 }
 
 void setup() {
   Serial.begin(9600);
-    // Wire.setSDA(12);  // 更改I2C引脚，将SDA设置为12引脚
-    // Wire.setSCL(13);  // 更改I2C引脚，将SCL设置为13引脚
+  Wire.setSDA(12);
+  Wire.setSCL(13);
   Wire.begin();
   mpu6050.begin();
-  // mpu6050.calcGyroOffsets(true);  // 陀螺仪校准，需静止3秒，不用也行
-
-  randomSeed(analogRead(14));  // 读悬空引脚，获得随机数种子
-
+  randomSeed(analogRead(14));
   for (byte i = 0; i < 2; i++) {
     lc.shutdown(i, false);
     lc.setIntensity(i, 2);  // 控制粒子的亮度强度
   }
-  resetTime(); // 初始化点阵屏上的粒子
+  ParticleInit();
+  ParticleRender();
 }
 
 void loop() {
   delay(50);
-  gravity = getGravity(); // 获取当前重力方向
-  last_direction = gravity; // 保存当前重力方向为上一次的方向
-  lc.setRotation((ROTATION_OFFSET + gravity) % 360); // 设置点阵屏的显示方向
-
-  bool moved = updateMatrix(); // 更新粒子的运动状态
-  bool dropped = dropParticle(); // 实现粒子的跨屏移动
+  mpu6050.update();
+  float y = mpu6050.getAccY();
+  Serial.println("y方向加速度：");
+  Serial.println(y);
+  ParticleUpdate();
+  ParticleRender();
 }
 
+/**
+* @brief 初始化粒子,使用点阵屏参考坐标系，点亮上屏所有点
+* 
+*/
+void ParticleInit(){
+  int i = 0;
+  for(int x = 0;x<8;x++){
+    for(int y = 8;y<16;y++){
+      particles[i].x = x;
+      particles[i].y = y;
+      particles[i].velX = 0;
+      particles[i].velY = 0;
+      particles[i].active = true;
+      grid[x][y] = 1;
+      i++;
+    }
+  }
+}
+/**
+ * @brief 更新粒子位置，根据加速度计算粒子速度
+ * 
+ */
+void ParticleUpdate(){
+  mpu6050.update();
+  //获取全局坐标系下的加速度
+  float g_gx = -mpu6050.getAccX()*Gravity;  
+  float g_gy = mpu6050.getAccY()*Gravity;  
 
+  //获取局部(LED)坐标系下的加速度
+  float l_gx = -g_gx * 0.707 + g_gy * 0.707;
+  float l_gy = -g_gx * 0.707 - g_gy * 0.707;
+  //遍历方式更新粒子位置
+  for(int i = 0;i<PARTICLE_COUNT;i++){
+    particles[i].velX = l_gx;
+    particles[i].velY = l_gy;
+    //ParticleCollision(&particles[i]);
+    Serial.println("初始化速度");
+    Serial.println(g_gx);
+    Serial.println(g_gy);
+    ParticleMove(&particles[i]);
+  }
+}
+/**
+ * @brief 检测粒子碰撞墙壁或粒子，撞到则速度为0,对于两点阵屏连接处不处理
+ * 
+ * @param p 粒子实体指针
+ */
+void ParticleCollision(Particle *p){
+  if(((p->x == 7) && (p->y == 0)) || ((p->x == 8) && (p->y == -1))){
+    return;
+  }
+  if(p->velX < 0){
+    if((particles->x == 0 && (8<=particles->y<=15)) || (particles->x == 8 && (0<=particles->y<=7))){
+      p->velX = 0;
+    }
+  }
+  if(p->velX > 0){
+    if((particles->x == 7 && (8<=particles->y<=15)) || (particles->x == 15 && (0<=particles->y<=7))){
+      p->velX = 0;
+    }
+  }
+  if(p->velY < 0){
+    if((particles->y == 8 && (0<=particles->x<=7)) || (particles->y == 0 && (8<=particles->x<=15))){
+      p->velY = 0;
+    }
+  }
+  if(p->velY > 0){
+    if((particles->y == 15 && (0<=particles->x<=7)) || (particles->y == 7 && (8<=particles->x<=15))){
+      p->velY = 0;
+    }
+  }
+}
+/**
+ * @brief 粒子移动后位置计算,内部更新粒子位置以及网表
+ * 
+ * @param p 粒子实体指针
+ */
+void ParticleMove(Particle *p){
+//存储粒子速度绝对值以及符号
+  int dx = ceil(abs(p->velX));
+  int dy = ceil(abs(p->velY));
+  int signx = (p->velX>0)?1:-1;
+  int signy = (p->velY>0)?1:-1;
+//存储最大速度方向，1为x方向，0为y方向
+  bool maxer = (max(dx,dy) == dx)?true:false;
+//存储最大与最小之比(就近取整)
+  float scale = (maxer)?(dx/dy):(dy/dx);
+  float count = 0;
+  Serial.println("取整速度：");
+  Serial.print("dx:");
+  Serial.println(dx);
+  Serial.print("dy:");
+  Serial.println(dy);
+//限制增量大小，防止粒子过墙,对于连接处如果移动方向合适直接移动至另一屏并清空速度
+  if((p->x == 7) && (p->y == 8)){
+    if ((signx > 0) && (signy <0) && (grid[8][7] == 0)){
+      grid[8][7] =1;
+      grid[7][8] = 0;
+      p->x = 8;
+      p->y = 7;
+      p->velX = 0;
+      p->velY = 0;
+      return;
+    }
+  }
+  else if((p->x == 8) && (p->y == 7)){
+    if((signx < 0) && (signy > 0) && (grid[7][8] == 0)){
+      grid[7][8] = 1;
+      grid[8][7] = 0;
+      p->x = 7;
+      p->y = 8;
+      p->velX = 0;
+      p->velY = 0;
+      return;
+    }
+  }
+  else if(p->x < 8){
+    dx = ((signx*dx+p->x)>7)?(7-p->x):(dx);
+    dx = ((signx*dx+p->x)<0)?(p->x):(dx);
+    dy = ((signy*dy+p->y)>15)?(15-p->y):(dy);
+    dy = ((signy*dy+p->y)<8)?(p->y-8):(dy);
+  }
+  else{
+    dx = ((signx*dx+p->x)>15)?(15-p->x):(dx);
+    dx = ((signx*dx+p->x)<8)?(p->x-8):(dx);
+    dy = ((signy*dy+p->y)>7)?(7-p->y):(dy);
+    dy = ((signy*dy+p->y)<0)?(p->y):(dy);
+  }
+  //打印限制后的粒子速度
+  Serial.println("限制速度：");
+  Serial.print("dx:");
+  Serial.println(dx);
+  Serial.print("dy:");
+  Serial.println(dy);
+//移动粒子
+  while((dx>=0) && (dy>=0)){
+    if(grid[p->x+signx*dx][p->y+signy*dy] == 0){
+      grid[p->x+signx*dx][p->y+signy*dy] = 1;
+      grid[p->x][p->y] = 0;
+      p->x += signx*dx;
+      p->y += signy*dy;
+      break;
+    }
+    if(maxer){
+      dx--;
+      count++;
+      if(count >= scale){
+        dy--;
+        count -= scale ;
+      }
+    }
+    else{
+      dy--;
+      count++;
+      if(count >= scale){
+        dx--;
+        count -= scale;
+      }
+    }
+  }
+}
+void ParticleRender(){
+  //上屏区渲染
+  for(int i=7;i>=0;i--){
+    for(int j=8;j<16;j++){
+      if(grid[i][j] == 1){
+        lc.setLed(0,(15-j),(i),true);
+      }
+      else{
+        lc.setLed(0,(15-j),(i),false);
+      }
+    }
+  }
+  //下屏区渲染
+  for(int i=15;i>=8;i--){
+    for(int j=0;j<8;j++){
+      if(grid[i][j] == 1){
+        lc.setLed(1,(7-j),(i-8),true);
+      }
+      else{
+        lc.setLed(1,(7-j),(i-8),false);
+      }
+    }
+  }
+}
