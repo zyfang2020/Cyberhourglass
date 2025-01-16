@@ -14,7 +14,7 @@ MPU6050 mpu6050(Wire);
 #define PIN_LOAD 1    // CS 引脚
 // 点阵屏安装方向
 #define ROTATION_OFFSET 90
-#define Gravity 6
+#define Gravity 0.3
 //定义粒子实体数
 #define PARTICLE_COUNT 64
 
@@ -82,11 +82,7 @@ void setup() {
 }
 
 void loop() {
-  delay(50);
-  mpu6050.update();
-  float y = mpu6050.getAccY();
-  Serial.println("y方向加速度：");
-  Serial.println(y);
+  delay(200);
   ParticleUpdate();
   ParticleRender();
 }
@@ -126,7 +122,7 @@ void ParticleUpdate(){
   for(int i = 0;i<PARTICLE_COUNT;i++){
     particles[i].velX = l_gx;
     particles[i].velY = l_gy;
-    //ParticleCollision(&particles[i]);
+    ParticleCollision(&particles[i]);
     Serial.println("初始化速度");
     Serial.println(g_gx);
     Serial.println(g_gy);
@@ -134,31 +130,30 @@ void ParticleUpdate(){
   }
 }
 /**
- * @brief 检测粒子碰撞墙壁或粒子，撞到则速度为0,对于两点阵屏连接处不处理
- * 
+ * @brief 处理粒子在边界的情况，如果粒子在边界处速度方向与边界方向相反则速度清零，连接处除外
  * @param p 粒子实体指针
  */
 void ParticleCollision(Particle *p){
-  if(((p->x == 7) && (p->y == 0)) || ((p->x == 8) && (p->y == -1))){
+  if(((p->x == 7) && (p->y == 8)) || ((p->x == 8) && (p->y == 7))){
     return;
   }
   if(p->velX < 0){
-    if((particles->x == 0 && (8<=particles->y<=15)) || (particles->x == 8 && (0<=particles->y<=7))){
+    if((p->x == 0 ) || (p->x == 8)){
       p->velX = 0;
     }
   }
-  if(p->velX > 0){
-    if((particles->x == 7 && (8<=particles->y<=15)) || (particles->x == 15 && (0<=particles->y<=7))){
+  else if(p->velX > 0){
+    if((p->x == 7) || (p->x == 15)){
       p->velX = 0;
     }
   }
   if(p->velY < 0){
-    if((particles->y == 8 && (0<=particles->x<=7)) || (particles->y == 0 && (8<=particles->x<=15))){
+    if((p->y == 8) || (p->y == 0)){
       p->velY = 0;
     }
   }
-  if(p->velY > 0){
-    if((particles->y == 15 && (0<=particles->x<=7)) || (particles->y == 7 && (8<=particles->x<=15))){
+  else if(p->velY > 0){
+    if((p->y == 15) || (p->y == 7)){
       p->velY = 0;
     }
   }
@@ -168,26 +163,29 @@ void ParticleCollision(Particle *p){
  * 
  * @param p 粒子实体指针
  */
-void ParticleMove(Particle *p){
-//存储粒子速度绝对值以及符号
-  int dx = ceil(abs(p->velX));
-  int dy = ceil(abs(p->velY));
-  int signx = (p->velX>0)?1:-1;
-  int signy = (p->velY>0)?1:-1;
-//存储最大速度方向，1为x方向，0为y方向
-  bool maxer = (max(dx,dy) == dx)?true:false;
-//存储最大与最小之比(就近取整)
-  float scale = (maxer)?(dx/dy):(dy/dx);
+void ParticleMove(Particle *p) {
+  // 存储粒子速度绝对值以及符号
+  int dx = (p->velX > 0) ? ceil(p->velX) : ceil(-p->velX);
+  int dy = (p->velY > 0) ? ceil(p->velY) : ceil(-p->velY);
+  float absx = (p->velX > 0) ? p->velX : -p->velX;
+  float absy = (p->velY > 0) ? p->velY : -p->velY;
+  int signx = (p->velX > 0) ? 1 : -1;
+  int signy = (p->velY > 0) ? 1 : -1;
+  int i = 0, j = 0;
+  // 存储最大速度方向，1为x方向，0为y方向
+  bool maxer = (max(absx, absy) == absx);
+  // 存储最大与最小之比(就近取整)
+  float scale = maxer ? (float)dx / dy : (float)dy / dx;
   float count = 0;
   Serial.println("取整速度：");
   Serial.print("dx:");
   Serial.println(dx);
   Serial.print("dy:");
   Serial.println(dy);
-//限制增量大小，防止粒子过墙,对于连接处如果移动方向合适直接移动至另一屏并清空速度
-  if((p->x == 7) && (p->y == 8)){
-    if ((signx > 0) && (signy <0) && (grid[8][7] == 0)){
-      grid[8][7] =1;
+  // 限制增量大小，防止粒子过墙,对于连接处如果移动方向合适直接移动至另一屏并清空速度
+  if ((p->x == 7) && (p->y == 8)) {
+    if ((signx > 0) && (signy < 0) && (grid[8][7] == 0)) {
+      grid[8][7] = 1;
       grid[7][8] = 0;
       p->x = 8;
       p->y = 7;
@@ -195,9 +193,8 @@ void ParticleMove(Particle *p){
       p->velY = 0;
       return;
     }
-  }
-  else if((p->x == 8) && (p->y == 7)){
-    if((signx < 0) && (signy > 0) && (grid[7][8] == 0)){
+  } else if ((p->x == 8) && (p->y == 7)) {
+    if ((signx < 0) && (signy > 0) && (grid[7][8] == 0)) {
       grid[7][8] = 1;
       grid[8][7] = 0;
       p->x = 7;
@@ -206,52 +203,55 @@ void ParticleMove(Particle *p){
       p->velY = 0;
       return;
     }
+  } else if (p->x < 8) {
+    dx = ((signx * dx + p->x) > 7) ? (7 - p->x) : dx;
+    dx = ((signx * dx + p->x) < 0) ? p->x : dx;
+    dy = ((signy * dy + p->y) > 15) ? (15 - p->y) : dy;
+    dy = ((signy * dy + p->y) < 8) ? (p->y - 8) : dy;
+  } else {
+    dx = ((signx * dx + p->x) > 15) ? (15 - p->x) : dx;
+    dx = ((signx * dx + p->x) < 8) ? (p->x - 8) : dx;
+    dy = ((signy * dy + p->y) > 7) ? (7 - p->y) : dy;
+    dy = ((signy * dy + p->y) < 0) ? p->y : dy;
   }
-  else if(p->x < 8){
-    dx = ((signx*dx+p->x)>7)?(7-p->x):(dx);
-    dx = ((signx*dx+p->x)<0)?(p->x):(dx);
-    dy = ((signy*dy+p->y)>15)?(15-p->y):(dy);
-    dy = ((signy*dy+p->y)<8)?(p->y-8):(dy);
-  }
-  else{
-    dx = ((signx*dx+p->x)>15)?(15-p->x):(dx);
-    dx = ((signx*dx+p->x)<8)?(p->x-8):(dx);
-    dy = ((signy*dy+p->y)>7)?(7-p->y):(dy);
-    dy = ((signy*dy+p->y)<0)?(p->y):(dy);
-  }
-  //打印限制后的粒子速度
+  // 打印限制后的粒子速度
   Serial.println("限制速度：");
   Serial.print("dx:");
   Serial.println(dx);
   Serial.print("dy:");
   Serial.println(dy);
-//移动粒子
-  while((dx>=0) && (dy>=0)){
-    if(grid[p->x+signx*dx][p->y+signy*dy] == 0){
-      grid[p->x+signx*dx][p->y+signy*dy] = 1;
-      grid[p->x][p->y] = 0;
-      p->x += signx*dx;
-      p->y += signy*dy;
-      break;
-    }
-    if(maxer){
-      dx--;
+  // 移动粒子
+  while ((i <= dx) && (j <= dy)) {
+    if (maxer) {
+      i++;
       count++;
-      if(count >= scale){
-        dy--;
-        count -= scale ;
+      if (grid[p->x + signx * i][p->y + signy * j] == 0) {
+        grid[p->x][p->y] = 0;
+        grid[p->x + signx * i][p->y + signy * j] = 1;
+        p->x += signx * i;
+        p->y += signy * j;
       }
-    }
-    else{
-      dy--;
+      if (count >= scale) {
+      j++;
+      count -= scale;
+      }
+    } else {
+      j++;
       count++;
-      if(count >= scale){
-        dx--;
+      if (grid[p->x + signx * i][p->y + signy * j] == 0) {
+        grid[p->x][p->y] = 0;
+        grid[p->x + signx * i][p->y + signy * j] = 1;
+        p->x += signx * i;
+        p->y += signy * j;
+      }
+      if (count >= scale) {
+        i++;
         count -= scale;
       }
     }
   }
 }
+
 void ParticleRender(){
   //上屏区渲染
   for(int i=7;i>=0;i--){
